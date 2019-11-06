@@ -253,7 +253,7 @@
       }
     }()
     ```
-    由于需要进行heartbeat的循环发送所以这部分需要使用一个私有函数配合`defer heartBeat.Stop()`使用，在状态结束后结束heartbeat的发送。这里不再使用先前的time.Timer计时器，而是使用time.NewTicker计时。因为这种计时器不需要在计时器超时时会自动重新启动而不需要再次Reset。每次收到heartBeat时，由Leader向所有其他节点发送AppendEntries并接受回复。
+    由于需要进行heartbeat的循环发送所以这部分需要使用一个匿名函数配合`defer heartBeat.Stop()`使用，在状态结束后结束heartbeat的发送。这里不再使用先前的time.Timer计时器，而是使用time.NewTicker计时。因为这种计时器不需要在计时器超时时会自动重新启动而不需要再次Reset。每次收到heartBeat时，由Leader向所有其他节点发送AppendEntries并接受回复。
 
 ### 实验演示
 
@@ -263,4 +263,14 @@
 
   * TestReElection
 
-  <center><img src="./img/exp1-test1.png"></img></center>
+  <center><img src="./img/exp1-test2.png"></img></center>
+
+### 总结
+
+  * 由于整个工程的并发性，所以导致使用debug会出现神奇的输出和执行效果，便不能够使用debug来进行调试，只能采取在各个功能模块进行输出的方式观察程序运行的状况。
+
+  * 对于channel类型的变量，需要进行初始化。如果不使用make初始化虽然程序还能够运行不会报错，但是会使程序逻辑出错，实现过程中对于heartBeat的channel忘记了初始化，在选举Leader成功后无法获取heartbeat的信号导致每一个term都会产生新的Leader，虽然依旧能够通过test得到pass结果，但是显然是不符合要求的。
+
+  * 在定义结构体内部变量时，需要注意首字母的大小写，在Call进行调用RequestVote时得到的参数RequestVoteArgs中变量首字母需要大写才能够在Call中顺利得对其进行二进制得decode，如果命名为小写开头，便在函数外部无法调用虽然能够将值传入Call函数中，但是在decode阶段便会得到一个nil的空值并报错。
+
+  * 对于for的死循环及fun(){}()的匿名函数等等，需要注意他们弹出的条件及语句，由于编写的代码中并发及嵌套较多，是否使用break或return会使结果产生很大的差异。下一步实验中可能会将独立代码块重新编写为独立的函数。
