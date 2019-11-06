@@ -353,65 +353,67 @@ func (rf *Raft) mainLoop() {
 				}
 			}
 		case Candidate:
-			rf.voteFor = rf.me
-			//rf.persist()
-			count := 1
-			n := len(rf.peers)
-			success := make(chan int)
-			go func() {
-				reply := make(chan *RequestVoteReply)
-				for i := 0; i < n; i++ {
-					if i != rf.me {
-						go func(i int) {
-							var tReply *RequestVoteReply
-							// fmt.Printf("%d,%d\n", args.CandidateId, args.Term)
-							ok := rf.peers[i].Call("Raft.RequestVote", RequestVoteArgs{rf.currentTerm, rf.me}, &tReply)
-							if ok {
-								//fmt.Printf("get Server %d vote for Server %d - %t in Term %d\n", i, rf.voteFor, tReply.VoteGranted, tReply.Term)
-								reply <- tReply
-							}
-							return
-						}(i)
-					}
-				}
-				for {
-					// fmt.Print("in count vote\n")
-					rep := <-reply
-					if rep.Term > rf.currentTerm {
-						rf.state = Follower
-						rf.voteFor = -1
-						rf.currentTerm = rep.Term
-						rf.Candidate2Follower <- 1
-						//return
-					}
-					if rep.VoteGranted {
-						count += 1
-						fmt.Printf("In term %d Server %d get a vote, total vote %d\n", rep.Term, rf.voteFor, count)
-						if count > n/2 {
-							success <- 1
-							//rf.state = Leader
-							//return
+			func() {
+				rf.voteFor = rf.me
+				//rf.persist()
+				count := 1
+				n := len(rf.peers)
+				success := make(chan int)
+				go func() {
+					reply := make(chan *RequestVoteReply)
+					for i := 0; i < n; i++ {
+						if i != rf.me {
+							go func(i int) {
+								var tReply *RequestVoteReply
+								// fmt.Printf("%d,%d\n", args.CandidateId, args.Term)
+								ok := rf.peers[i].Call("Raft.RequestVote", RequestVoteArgs{rf.currentTerm, rf.me}, &tReply)
+								if ok {
+									//fmt.Printf("get Server %d vote for Server %d - %t in Term %d\n", i, rf.voteFor, tReply.VoteGranted, tReply.Term)
+									reply <- tReply
+								}
+								return
+							}(i)
 						}
 					}
+					for {
+						// fmt.Print("in count vote\n")
+						rep := <-reply
+						if rep.Term > rf.currentTerm {
+							rf.state = Follower
+							rf.voteFor = -1
+							rf.currentTerm = rep.Term
+							rf.Candidate2Follower <- 1
+							return
+						}
+						if rep.VoteGranted {
+							count += 1
+							// fmt.Printf("In term %d Server %d get a vote, total vote %d\n", rep.Term, rf.voteFor, count)
+							if count > n/2 {
+								success <- 1
+								//rf.state = Leader
+								return
+							}
+						}
+					}
+				}()
+				select {
+				case <-success:
+					rf.state = Leader
+					rf.voteFor = -1
+					fmt.Printf("Server %d become Leader in Term %d, state %d\n", rf.me, rf.currentTerm, rf.state)
+					return
+				case <-rf.Candidate2Follower:
+					rf.state = Follower
+					// rf.voteFor = -1
+					fmt.Printf("Server %d become Follower in Term %d\n", rf.me, rf.currentTerm)
+					return
+				case <-rf.electionTimer.C:
+					rf.electionTimer.Reset(randTime())
+					rf.currentTerm += 1
+					rf.voteFor = -1
+					return
 				}
 			}()
-			select {
-			case <-success:
-				rf.state = Leader
-				rf.voteFor = -1
-				fmt.Printf("Server %d become Leader in Term %d, state %d\n", rf.me, rf.currentTerm, rf.state)
-				//return
-			case <-rf.Candidate2Follower:
-				rf.state = Follower
-				// rf.voteFor = -1
-				fmt.Printf("Server %d become Follower in Term %d\n", rf.me, rf.currentTerm)
-				//return
-			case <-rf.electionTimer.C:
-				rf.electionTimer.Reset(randTime())
-				rf.currentTerm += 1
-				rf.voteFor = -1
-				//return
-			}
 		case Leader:
 			//fmt.Print("in leader\n")
 			func() {
